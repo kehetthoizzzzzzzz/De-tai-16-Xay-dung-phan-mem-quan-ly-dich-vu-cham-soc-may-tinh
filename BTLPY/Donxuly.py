@@ -1,4 +1,5 @@
 from PyQt6 import QtWidgets, QtGui, QtCore
+import sqlite3
 
 
 class OrderUI(QtWidgets.QWidget):
@@ -12,18 +13,6 @@ class OrderUI(QtWidgets.QWidget):
                 font-family: Segoe UI;
                 font-size: 13px;
                 background: #f5f7fa;
-            }
-            QLineEdit, QComboBox {
-                padding: 8px;
-                border: 1px solid #ccc;
-                border-radius: 8px;
-                background: white;
-            }
-            QPushButton {
-                padding: 8px 15px;
-                border-radius: 8px;
-                color: white;
-                font-weight: bold;
             }
         """)
 
@@ -42,110 +31,75 @@ class OrderUI(QtWidgets.QWidget):
         header.addStretch()
         header.addWidget(self.search_input)
 
-        # ===== FORM =====
-        form_card = QtWidgets.QFrame()
-        form_card.setStyleSheet("""
-            QFrame {
-                background:white;
-                border-radius:12px;
-                border:1px solid #ddd;
-            }
-        """)
-
-        form_layout = QtWidgets.QVBoxLayout(form_card)
-
-        input_layout = QtWidgets.QHBoxLayout()
-
-        self.customer_input = QtWidgets.QLineEdit()
-        self.customer_input.setPlaceholderText("👤 Khách")
-
-        self.problem_input = QtWidgets.QLineEdit()
-        self.problem_input.setPlaceholderText("💻 Tình trạng máy")
-
-        self.status_input = QtWidgets.QComboBox()
-        self.status_input.addItems(["Đang xử lý", "Chờ linh kiện", "Hoàn thành"])
-
-        input_layout.addWidget(self.customer_input)
-        input_layout.addWidget(self.problem_input)
-        input_layout.addWidget(self.status_input)
-
         # ===== BUTTON =====
         btn_layout = QtWidgets.QHBoxLayout()
 
-        self.add_btn = QtWidgets.QPushButton("➕ Thêm")
-        self.add_btn.setStyleSheet("background:#28a745;")
-
-        self.update_btn = QtWidgets.QPushButton("✏️ Sửa")
-        self.update_btn.setStyleSheet("background:#ffc107; color:black;")
-
-        self.delete_btn = QtWidgets.QPushButton("🗑️ Xóa")
-        self.delete_btn.setStyleSheet("background:#dc3545;")
-
-        self.clear_btn = QtWidgets.QPushButton("🧹 Clear")
-        self.clear_btn.setStyleSheet("background:#6c757d;")
-
-        btn_layout.addWidget(self.add_btn)
-        btn_layout.addWidget(self.update_btn)
-        btn_layout.addWidget(self.delete_btn)
-        btn_layout.addWidget(self.clear_btn)
-
-        form_layout.addLayout(input_layout)
-        form_layout.addLayout(btn_layout)
-
-        # ===== TABLE =====
-        self.table = QtWidgets.QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Khách", "Tình trạng", "Trạng thái"])
-        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
-
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background: white;
-                border-radius: 10px;
-            }
-            QHeaderView::section {
-                background:#2c7be5;
+        self.btn_done = QtWidgets.QPushButton("✅ Hoàn thành đơn")
+        self.btn_done.setStyleSheet("""
+            QPushButton {
+                background:#52c41a;
                 color:white;
-                padding:6px;
-                font-weight:bold;
+                padding:8px;
+                border-radius:8px;
             }
         """)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_done)
+
+        # ===== TABLE =====
+        self.table = QtWidgets.QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["ID", "Khách", "Lỗi", "Giá tiền", "Trạng thái"])
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnHidden(0, True)
 
         self.table.setAlternatingRowColors(True)
 
         # ===== ADD =====
         main_layout.addLayout(header)
-        main_layout.addWidget(form_card)
+        main_layout.addLayout(btn_layout)
         main_layout.addWidget(self.table)
 
-        # ===== EVENTS =====
-        self.add_btn.clicked.connect(self.add_order)
-        self.update_btn.clicked.connect(self.update_order)
-        self.delete_btn.clicked.connect(self.delete_order)
-        self.clear_btn.clicked.connect(self.clear_form)
-        self.table.cellClicked.connect(self.load_data)
+        # ===== DB =====
+        self.conn = sqlite3.connect("data.db")
+        self.cursor = self.conn.cursor()
+
+        # ===== EVENT =====
         self.search_input.textChanged.connect(self.search_order)
+        self.table.cellDoubleClicked.connect(self.show_detail)
+        self.btn_done.clicked.connect(self.mark_done)
 
-        # ===== DATA ẢO =====
-        self.load_fake_data()
+        # ===== AUTO REFRESH =====
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.load_ticket)
+        self.timer.start(3000)  # 3s reload
 
-    # ===== DATA =====
-    def load_fake_data(self):
-        data = [
-            ("Nguyễn Văn A", "Hỏng màn", "Đang xử lý"),
-            ("Trần Văn B", "Thay bàn phím", "Chờ linh kiện"),
-            ("Lê Văn C", "Không lên nguồn", "Đang xử lý"),
-            ("Phạm Văn D", "Thay pin", "Hoàn thành"),
-        ]
+        self.load_ticket()
 
-        for row_data in data:
+    # =========================
+    def load_ticket(self):
+        self.table.setRowCount(0)
+
+        query = """
+        SELECT t.id_ticket, c.ten, t.loi, t.gia_tien, t.trang_thai
+        FROM ticket t
+        JOIN customers c ON t.id_khach = c.id_khach
+        ORDER BY t.ngay_tao ASC
+        """
+
+        for row_data in self.cursor.execute(query):
             row = self.table.rowCount()
             self.table.insertRow(row)
 
             for col, value in enumerate(row_data):
-                item = QtWidgets.QTableWidgetItem(value)
 
-                # ===== màu trạng thái =====
-                if col == 2:
+                if col == 3:
+                    value = f"{value:,} đ" if value else "0 đ"
+
+                item = QtWidgets.QTableWidgetItem(str(value))
+
+                # màu trạng thái
+                if col == 4:
                     if value == "Đang xử lý":
                         item.setBackground(QtGui.QColor("#faad14"))
                     elif value == "Chờ linh kiện":
@@ -158,65 +112,86 @@ class OrderUI(QtWidgets.QWidget):
                 item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(row, col, item)
 
-    # ===== FUNCTIONS =====
-    def add_order(self):
-        row = self.table.rowCount()
-        self.table.insertRow(row)
+        self.table.scrollToBottom()
 
-        data = [
-            self.customer_input.text(),
-            self.problem_input.text(),
-            self.status_input.currentText()
-        ]
-
-        for col, value in enumerate(data):
-            item = QtWidgets.QTableWidgetItem(value)
-
-            if col == 2:
-                if value == "Đang xử lý":
-                    item.setBackground(QtGui.QColor("#faad14"))
-                elif value == "Chờ linh kiện":
-                    item.setBackground(QtGui.QColor("#1890ff"))
-                    item.setForeground(QtGui.QColor("white"))
-                elif value == "Hoàn thành":
-                    item.setBackground(QtGui.QColor("#52c41a"))
-                    item.setForeground(QtGui.QColor("white"))
-
-            self.table.setItem(row, col, item)
-
-    def delete_order(self):
+    # =========================
+    def mark_done(self):
         row = self.table.currentRow()
-        if row >= 0:
-            self.table.removeRow(row)
 
-    def update_order(self):
-        row = self.table.currentRow()
-        if row >= 0:
-            self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(self.customer_input.text()))
-            self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(self.problem_input.text()))
-            self.table.setItem(row, 2, QtWidgets.QTableWidgetItem(self.status_input.currentText()))
+        if row < 0:
+            QtWidgets.QMessageBox.warning(self, "Lỗi", "Chọn 1 đơn!")
+            return
 
-    def clear_form(self):
-        self.customer_input.clear()
-        self.problem_input.clear()
+        status = self.table.item(row, 4).text()
+        if status == "Hoàn thành":
+            QtWidgets.QMessageBox.information(self, "Thông báo", "Đã hoàn thành rồi!")
+            return
 
-    def load_data(self, row, column):
-        self.customer_input.setText(self.table.item(row, 0).text())
-        self.problem_input.setText(self.table.item(row, 1).text())
-        self.status_input.setCurrentText(self.table.item(row, 2).text())
+        id_ticket = self.table.item(row, 0).text()
 
+        self.cursor.execute(
+            "UPDATE ticket SET trang_thai='Hoàn thành' WHERE id_ticket=?",
+            (id_ticket,)
+        )
+        self.conn.commit()
+
+        QtWidgets.QMessageBox.information(self, "OK", "Đã hoàn thành!")
+
+        self.load_ticket()
+
+    # =========================
     def search_order(self):
         keyword = self.search_input.text().lower()
 
         for row in range(self.table.rowCount()):
-            name = self.table.item(row, 0).text().lower()
-            status = self.table.item(row, 2).text().lower()
+            name = self.table.item(row, 1).text().lower()
+            status = self.table.item(row, 4).text().lower()
 
-            match = keyword in name or keyword in status
-            self.table.setRowHidden(row, not match)
+            self.table.setRowHidden(row, not (keyword in name or keyword in status))
+
+    # =========================
+    def show_detail(self, row, column):
+        id_ticket = self.table.item(row, 0).text()
+
+        query = """
+        SELECT t.id_ticket, c.ten, c.sdt, s.ten,
+               t.loai_may, t.loi, t.ten_may,
+               t.mo_ta, t.gia_tien,
+               t.trang_thai, t.ngay_tao
+        FROM ticket t
+        JOIN customers c ON t.id_khach = c.id_khach
+        LEFT JOIN staff s ON t.id_nv = s.id_nv
+        WHERE t.id_ticket = ?
+        """
+
+        result = self.cursor.execute(query, (id_ticket,)).fetchone()
+
+        if not result:
+            return
+
+        staff_name = result[3] if result[3] else "Chưa phân công"
+
+        QtWidgets.QMessageBox.information(self, "Chi tiết", f"""
+🎫 ID: {result[0]}
+
+👤 Khách: {result[1]}
+📞 SĐT: {result[2]}
+👨‍🔧 NV: {staff_name}
+
+💻 Loại máy: {result[4]}
+⚠️ Lỗi: {result[5]}
+🖥️ Máy: {result[6]}
+
+📝 Mô tả:
+{result[7]}
+
+💰 Giá: {result[8]:,} đ
+
+📊 Trạng thái: {result[9]}
+📅 Ngày: {result[10]}
+""")
 
 
-# ===== RUN =====
 if __name__ == "__main__":
     import sys
     app = QtWidgets.QApplication(sys.argv)

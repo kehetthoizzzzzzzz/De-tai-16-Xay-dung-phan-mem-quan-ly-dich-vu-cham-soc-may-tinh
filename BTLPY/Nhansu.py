@@ -1,4 +1,5 @@
 from PyQt6 import QtWidgets, QtGui, QtCore
+import sqlite3
 
 
 class StaffUI(QtWidgets.QWidget):
@@ -13,7 +14,7 @@ class StaffUI(QtWidgets.QWidget):
                 font-size: 13px;
                 background: #f5f7fa;
             }
-            QLineEdit {
+            QLineEdit, QComboBox {
                 padding: 8px;
                 border: 1px solid #ccc;
                 border-radius: 8px;
@@ -27,6 +28,10 @@ class StaffUI(QtWidgets.QWidget):
             }
         """)
 
+        # ===== DB =====
+        self.conn = sqlite3.connect("data.db")
+        self.cursor = self.conn.cursor()
+
         main_layout = QtWidgets.QVBoxLayout(self)
 
         # ===== HEADER =====
@@ -36,7 +41,7 @@ class StaffUI(QtWidgets.QWidget):
         title.setStyleSheet("font-size:20px; font-weight:bold;")
 
         self.search_input = QtWidgets.QLineEdit()
-        self.search_input.setPlaceholderText("🔍 Tìm theo tên hoặc chức vụ...")
+        self.search_input.setPlaceholderText("🔍 Tìm theo tên hoặc role...")
 
         header.addWidget(title)
         header.addStretch()
@@ -59,8 +64,8 @@ class StaffUI(QtWidgets.QWidget):
         self.name_input = QtWidgets.QLineEdit()
         self.name_input.setPlaceholderText("👤 Tên nhân viên")
 
-        self.role_input = QtWidgets.QLineEdit()
-        self.role_input.setPlaceholderText("💼 Chức vụ")
+        self.role_input = QtWidgets.QComboBox()
+        self.role_input.addItems(["admin", "staff"])
 
         self.phone_input = QtWidgets.QLineEdit()
         self.phone_input.setPlaceholderText("📞 SĐT")
@@ -93,9 +98,11 @@ class StaffUI(QtWidgets.QWidget):
         form_layout.addLayout(btn_layout)
 
         # ===== TABLE =====
-        self.table = QtWidgets.QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Tên", "Chức vụ", "SĐT"])
+        self.table = QtWidgets.QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["ID", "Tên", "Role", "SĐT"])
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+
+        self.table.setColumnHidden(0, True)
 
         self.table.setStyleSheet("""
             QTableWidget {
@@ -129,69 +136,117 @@ class StaffUI(QtWidgets.QWidget):
         self.table.cellClicked.connect(self.load_data)
         self.search_input.textChanged.connect(self.search_staff)
 
-        # ===== DATA ẢO =====
-        self.load_fake_data()
+        # ===== LOAD =====
+        self.load_staff()
 
-    # ===== DATA ẢO =====
-    def load_fake_data(self):
-        data = [
-            ("Nguyễn Văn A", "Kỹ thuật viên", "0901234567"),
-            ("Trần Thị B", "Thu ngân", "0912345678"),
-            ("Lê Văn C", "Quản lý", "0923456789"),
-            ("Phạm Văn D", "Kỹ thuật viên", "0934567890"),
-            ("Hoàng Văn E", "CSKH", "0945678901"),
-        ]
+    # =========================
+    def load_staff(self):
+        self.table.setRowCount(0)
+
+        data = self.cursor.execute("""
+            SELECT id_nv, ten, role, sdt
+            FROM staff
+            ORDER BY id_nv DESC
+        """).fetchall()
 
         for row_data in data:
             row = self.table.rowCount()
             self.table.insertRow(row)
 
-            for col, value in enumerate(row_data):
-                item = QtWidgets.QTableWidgetItem(value)
+            for col, val in enumerate(row_data):
+                item = QtWidgets.QTableWidgetItem(str(val))
+
+                # màu role
+                if col == 2:
+                    if val == "admin":
+                        item.setBackground(QtGui.QColor("#ff4d4f"))
+                        item.setForeground(QtGui.QColor("white"))
+                    else:
+                        item.setBackground(QtGui.QColor("#52c41a"))
+                        item.setForeground(QtGui.QColor("white"))
+
                 item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(row, col, item)
 
-    # ===== FUNCTIONS =====
+    # =========================
     def add_staff(self):
-        if not self.name_input.text() or not self.role_input.text():
-            QtWidgets.QMessageBox.warning(self, "Lỗi", "Nhập đủ thông tin")
+        ten = self.name_input.text()
+        role = self.role_input.currentText()
+        sdt = self.phone_input.text()
+
+        if not ten:
+            QtWidgets.QMessageBox.warning(self, "Lỗi", "Nhập tên!")
             return
 
-        row = self.table.rowCount()
-        self.table.insertRow(row)
+        username = ten.replace(" ", "").lower()
+        password = "123"
 
-        self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(self.name_input.text()))
-        self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(self.role_input.text()))
-        self.table.setItem(row, 2, QtWidgets.QTableWidgetItem(self.phone_input.text()))
+        try:
+            self.cursor.execute("""
+            INSERT INTO staff (ten, username, password, role, sdt)
+            VALUES (?, ?, ?, ?, ?)
+            """, (ten, username, password, role, sdt))
 
-    def delete_staff(self):
-        row = self.table.currentRow()
-        if row >= 0:
-            self.table.removeRow(row)
+            self.conn.commit()
+            self.load_staff()
+            self.clear_form()
 
+        except sqlite3.IntegrityError:
+            QtWidgets.QMessageBox.warning(self, "Lỗi", "Username bị trùng!")
+
+    # =========================
     def update_staff(self):
         row = self.table.currentRow()
-        if row >= 0:
-            self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(self.name_input.text()))
-            self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(self.role_input.text()))
-            self.table.setItem(row, 2, QtWidgets.QTableWidgetItem(self.phone_input.text()))
+        if row < 0:
+            return
 
+        id_nv = self.table.item(row, 0).text()
+
+        self.cursor.execute("""
+        UPDATE staff
+        SET ten=?, role=?, sdt=?
+        WHERE id_nv=?
+        """, (
+            self.name_input.text(),
+            self.role_input.currentText(),
+            self.phone_input.text(),
+            id_nv
+        ))
+
+        self.conn.commit()
+        self.load_staff()
+
+    # =========================
+    def delete_staff(self):
+        row = self.table.currentRow()
+        if row < 0:
+            return
+
+        id_nv = self.table.item(row, 0).text()
+
+        self.cursor.execute("DELETE FROM staff WHERE id_nv=?", (id_nv,))
+        self.conn.commit()
+        self.load_staff()
+
+    # =========================
     def clear_form(self):
         self.name_input.clear()
-        self.role_input.clear()
         self.phone_input.clear()
+        self.role_input.setCurrentIndex(0)
 
+    # =========================
     def load_data(self, row, column):
-        self.name_input.setText(self.table.item(row, 0).text())
-        self.role_input.setText(self.table.item(row, 1).text())
-        self.phone_input.setText(self.table.item(row, 2).text())
+        self.name_input.setText(self.table.item(row, 1).text())
+        self.role_input.setCurrentText(self.table.item(row, 2).text())
+        self.phone_input.setText(self.table.item(row, 3).text())
 
+    # =========================
     def search_staff(self):
         keyword = self.search_input.text().lower()
 
         for row in range(self.table.rowCount()):
-            name = self.table.item(row, 0).text().lower()
-            role = self.table.item(row, 1).text().lower()
+            name = self.table.item(row, 1).text().lower()
+            role = self.table.item(row, 2).text().lower()
 
             match = keyword in name or keyword in role
             self.table.setRowHidden(row, not match)

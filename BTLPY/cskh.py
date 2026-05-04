@@ -1,3 +1,4 @@
+import sqlite3
 from PyQt6 import QtWidgets, QtGui, QtCore
 
 
@@ -29,6 +30,10 @@ class CustomerUI(QtWidgets.QWidget):
 
         main_layout = QtWidgets.QVBoxLayout(self)
 
+        # ===== DB =====
+        self.conn = sqlite3.connect("data.db")
+        self.cursor = self.conn.cursor()
+
         # ===== HEADER =====
         header = QtWidgets.QHBoxLayout()
 
@@ -42,7 +47,7 @@ class CustomerUI(QtWidgets.QWidget):
         header.addStretch()
         header.addWidget(self.search_input)
 
-        # ===== FORM CARD =====
+        # ===== FORM =====
         form_card = QtWidgets.QFrame()
         form_card.setStyleSheet("""
             QFrame {
@@ -93,31 +98,25 @@ class CustomerUI(QtWidgets.QWidget):
         form_layout.addLayout(btn_layout)
 
         # ===== TABLE =====
-        self.table = QtWidgets.QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Tên", "SĐT", "Địa chỉ"])
+        self.table = QtWidgets.QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["ID", "Tên", "SĐT", "Địa chỉ"])
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+
+        self.table.setColumnHidden(0, True)
 
         self.table.setStyleSheet("""
             QTableWidget {
                 border: none;
                 background: white;
                 border-radius: 10px;
-                gridline-color: #eee;
             }
             QHeaderView::section {
                 background:#2c7be5;
                 color:white;
                 padding:6px;
-                border:none;
                 font-weight:bold;
             }
-            QTableWidget::item:selected {
-                background:#1abc9c;
-                color:white;
-            }
         """)
-
-        self.table.setAlternatingRowColors(True)
 
         # ===== ADD =====
         main_layout.addLayout(header)
@@ -132,78 +131,107 @@ class CustomerUI(QtWidgets.QWidget):
         self.table.cellClicked.connect(self.load_data)
         self.search_input.textChanged.connect(self.search_customer)
 
-        # ===== LOAD DATA ẢO =====
-        self.load_fake_data()
+        # ===== LOAD =====
+        self.load_customers()
 
-    # ===== DATA ẢO =====
-    def load_fake_data(self):
-        data = [
-            ("Nguyễn Văn A", "0901234567", "Hà Nội"),
-            ("Trần Thị B", "0912345678", "TP.HCM"),
-            ("Lê Văn C", "0923456789", "Đà Nẵng"),
-            ("Phạm Văn D", "0934567890", "Hải Phòng"),
-            ("Hoàng Văn E", "0945678901", "Cần Thơ"),
-            ("Đỗ Văn F", "0956789012", "Huế"),
-            ("Bùi Văn G", "0967890123", "Bắc Ninh"),
-            ("Ngô Văn H", "0978901234", "Nghệ An"),
-        ]
+    # =========================
+    def load_customers(self):
+        self.table.setRowCount(0)
+
+        data = self.cursor.execute("""
+        SELECT id_khach, ten, sdt, dia_chi FROM customers
+        """).fetchall()
 
         for row_data in data:
             row = self.table.rowCount()
             self.table.insertRow(row)
 
-            for col, value in enumerate(row_data):
-                item = QtWidgets.QTableWidgetItem(value)
+            for col, val in enumerate(row_data):
+                item = QtWidgets.QTableWidgetItem(str(val))
                 item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(row, col, item)
 
-    # ===== FUNCTIONS =====
+    # =========================
     def add_customer(self):
-        if not self.name_input.text() or not self.phone_input.text():
-            QtWidgets.QMessageBox.warning(self, "Lỗi", "Vui lòng nhập đủ thông tin")
+        ten = self.name_input.text()
+        sdt = self.phone_input.text()
+        dia_chi = self.address_input.text()
+
+        if not ten or not sdt:
+            QtWidgets.QMessageBox.warning(self, "Lỗi", "Nhập thiếu thông tin!")
             return
 
-        row = self.table.rowCount()
-        self.table.insertRow(row)
+        self.cursor.execute("""
+        INSERT INTO customers (ten, sdt, dia_chi)
+        VALUES (?, ?, ?)
+        """, (ten, sdt, dia_chi))
 
-        self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(self.name_input.text()))
-        self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(self.phone_input.text()))
-        self.table.setItem(row, 2, QtWidgets.QTableWidgetItem(self.address_input.text()))
+        self.conn.commit()
+        self.load_customers()
+        self.clear_form()
 
-    def delete_customer(self):
-        row = self.table.currentRow()
-        if row >= 0:
-            self.table.removeRow(row)
-
+    # =========================
     def update_customer(self):
         row = self.table.currentRow()
-        if row >= 0:
-            self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(self.name_input.text()))
-            self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(self.phone_input.text()))
-            self.table.setItem(row, 2, QtWidgets.QTableWidgetItem(self.address_input.text()))
+        if row < 0:
+            return
 
+        id_khach = self.table.item(row, 0).text()
+
+        self.cursor.execute("""
+        UPDATE customers
+        SET ten=?, sdt=?, dia_chi=?
+        WHERE id_khach=?
+        """, (
+            self.name_input.text(),
+            self.phone_input.text(),
+            self.address_input.text(),
+            id_khach
+        ))
+
+        self.conn.commit()
+        self.load_customers()
+
+    # =========================
+    def delete_customer(self):
+        row = self.table.currentRow()
+        if row < 0:
+            return
+
+        id_khach = self.table.item(row, 0).text()
+
+        self.cursor.execute("""
+        DELETE FROM customers WHERE id_khach=?
+        """, (id_khach,))
+
+        self.conn.commit()
+        self.load_customers()
+
+    # =========================
     def clear_form(self):
         self.name_input.clear()
         self.phone_input.clear()
         self.address_input.clear()
 
+    # =========================
     def load_data(self, row, column):
-        self.name_input.setText(self.table.item(row, 0).text())
-        self.phone_input.setText(self.table.item(row, 1).text())
-        self.address_input.setText(self.table.item(row, 2).text())
+        self.name_input.setText(self.table.item(row, 1).text())
+        self.phone_input.setText(self.table.item(row, 2).text())
+        self.address_input.setText(self.table.item(row, 3).text())
 
+    # =========================
     def search_customer(self):
         keyword = self.search_input.text().lower()
 
         for row in range(self.table.rowCount()):
-            name = self.table.item(row, 0).text().lower()
-            phone = self.table.item(row, 1).text().lower()
+            name = self.table.item(row, 1).text().lower()
+            phone = self.table.item(row, 2).text().lower()
 
             match = keyword in name or keyword in phone
             self.table.setRowHidden(row, not match)
 
 
-# ===== RUN =====
+# RUN
 if __name__ == "__main__":
     import sys
     app = QtWidgets.QApplication(sys.argv)
